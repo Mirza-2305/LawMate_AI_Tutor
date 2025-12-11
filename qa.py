@@ -1,4 +1,4 @@
-# qa.py - Ultimate Forceful Fallback Version
+# qa.py - Optimized with Lazy Loading & Startup Timeout Fix
 import os
 from typing import List, Dict
 import streamlit as st
@@ -20,7 +20,7 @@ def initialize_gemini_client():
         st.error("""
         ### 🔴 NO API KEY FOUND
         
-        **Get your FREE key from:** https://aistudio.google.com/app/apikey
+        **Get your FREE key from:** https://aistudio.google.com/app/apikey 
         
         **Then create `.env` file with:**
         ```
@@ -36,11 +36,18 @@ def initialize_gemini_client():
     genai.configure(api_key=api_key)
     return genai
 
-try:
-    genai = initialize_gemini_client()
-except Exception as e:
-    st.error(f"Failed to initialize Gemini: {e}")
-    st.stop()
+# === LAZY LOADING WITH CACHING ===
+@st.cache_resource
+def get_gemini_client():
+    """Initialize Gemini only once per session - prevents startup timeout"""
+    try:
+        genai = initialize_gemini_client()
+        st.sidebar.success("✅ Gemini API connected")
+        return genai
+    except Exception as e:
+        st.sidebar.error(f"❌ Gemini init failed: {e}")
+        st.sidebar.info("Check your API key in Streamlit Cloud Secrets")
+        return None
 
 DEFAULT_MODEL = "gemini-2.0-flash"
 
@@ -49,6 +56,18 @@ def get_answer_from_chunks(query: str, chunks: List[Dict],
     """
     Force Gemini to answer - retries with general knowledge if refusal detected.
     """
+    # LAZY INITIALIZE HERE - only when needed
+    genai = get_gemini_client()
+    if genai is None:
+        return {
+            "answer": "⚠️ Gemini API not available. Please add your API key to Streamlit Cloud Secrets.",
+            "sources": [],
+            "model_used": None,
+            "used_general_knowledge": False,
+            "has_document_context": False,
+            "refusal_detected": False
+        }
+    
     has_document_context = len(chunks) > 0
     
     if has_document_context:

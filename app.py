@@ -20,8 +20,13 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from docx import Document
 
 # NOW initialize session state (after imports)
-if 'file_manager' not in st.session_state:
-    st.session_state.file_manager = FileManager()
+@st.cache_resource
+def get_file_manager():
+    """Lazy-load file manager - only runs once"""
+    return FileManager()
+
+# Then in your code:
+file_manager = get_file_manager()  # Instead of st.session_state.file_manage
 
 if 'qa_history' not in st.session_state:
     st.session_state.qa_history = []
