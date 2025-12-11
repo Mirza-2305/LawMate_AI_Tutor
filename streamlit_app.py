@@ -2,7 +2,7 @@
 import streamlit as st
 
 # Show loading message immediately
-st.write("🚀 Initializing app... Please wait
+st.write("🚀 Initializing app... Please wait")
          
 import sys
 from pathlib import Path
