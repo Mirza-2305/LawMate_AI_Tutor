@@ -1,0 +1,10 @@
+# .gitignore
+.env
+*.db
+uploaded_docs/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+*.log
+.streamlit/secrets.toml  # Keep secrets local
