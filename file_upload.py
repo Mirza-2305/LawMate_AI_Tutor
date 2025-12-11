@@ -6,9 +6,8 @@ from database import DocumentDatabase
 
 # File manager for handling uploads and storage
 class FileManager:
-    def __init__(self, upload_dir: str = "uploaded_docs", 
-                 use_database: bool = True):
-        """Initialize file manager with upload directory."""
+    def __init__(self, upload_dir: str = "/tmp/uploaded_docs", use_database: bool = True):
+        """Use /tmp for Streamlit Cloud"""
         self.upload_dir = Path(upload_dir)
         self.upload_dir.mkdir(exist_ok=True)
         self.db = DocumentDatabase() if use_database else None

@@ -325,3 +325,12 @@ if st.session_state.qa_history:
 
 st.sidebar.markdown("---")
 st.sidebar.info("✅ **All features active**: Fallback, Notes, Export")
+
+# Add at the END of app.py
+def main():
+    """Streamlit Cloud entry point."""
+    # All your existing Streamlit code is already here
+    pass
+
+if __name__ == "__main__":
+    main()

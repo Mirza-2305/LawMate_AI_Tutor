@@ -7,8 +7,8 @@ import uuid
 
 # Database manager for persistent document storage using SQLite
 class DocumentDatabase:
-    def __init__(self, db_path: str = "documents.db"):
-        """Initialize SQLite database connection."""
+    def __init__(self, db_path: str = "/tmp/documents.db"):
+        """Use /tmp for Streamlit Cloud persistence"""
         self.db_path = db_path
         self.init_database()
     
