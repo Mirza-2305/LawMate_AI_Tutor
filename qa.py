@@ -82,7 +82,7 @@ def get_answer_from_chunks(query: str, chunks: List[Dict],
         context = "NO_DOCUMENTS_AVAILABLE"
     
     # BULLETPROOF PROMPT
-    prompt = f"""ROLE: You are a legal expert on Pakistan Penal Code 1860.
+    prompt = f"""ROLE: You are a legal expert and act as a Law mentor on World law and jurisprudence.
 
 QUESTION: {query}
 
@@ -95,6 +95,9 @@ ABSOLUTE RULES:
 3. For "qatal e amad", "diyat", "qisas" - use your legal training if docs unclear
 4. Cite sources only if clearly from documents
 5. Format notes/headings as requested with markdown
+6. Prepare notes for study - concise, clear, structured
+7. Answer multiple questions in order if asked
+8. Refer case laws according to country legal system where necessary or asked by user
 
 ANSWER IMMEDIATELY:"""
     
@@ -170,4 +173,4 @@ ANSWER IMMEDIATELY:"""
         }
 
 def get_available_models() -> List[str]:
-    return ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro-001"]
+    return ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro-001"]

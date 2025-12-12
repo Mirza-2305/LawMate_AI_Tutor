@@ -1,8 +1,9 @@
-# app.py - Complete with main() function
+# app.py - Complete Access Control & Authentication Version
 import streamlit as st
 from pathlib import Path
 import sys
 import os
+import uuid
 from datetime import datetime
 from io import BytesIO
 
@@ -105,11 +106,42 @@ def create_docx_export(data: dict) -> bytes:
     buffer.seek(0)
     return buffer.read()
 
-# === MAIN FUNCTION ===
-def main():
-    """Main app logic - ALL Streamlit code must be inside this function."""
+# === AUTHENTICATION SYSTEM ===
+def login_user():
+    """Handle user login and session management."""
+    st.sidebar.title("🔐 User Login")
     
-    # CRITICAL: set_page_config must be FIRST command in main()
+    if 'user' not in st.session_state:
+        st.session_state.user = None
+    
+    if st.session_state.user is None:
+        username = st.sidebar.text_input("Username")
+        password = st.sidebar.text_input("Password", type="password")
+        
+        if st.sidebar.button("Login"):
+            file_manager = st.session_state.file_manager
+            user = file_manager.verify_user(username, password)
+            
+            if user:
+                st.session_state.user = user
+                st.sidebar.success(f"✅ Welcome, {user['username']} ({user['role']})!")
+                st.rerun()
+            else:
+                st.sidebar.error("❌ Invalid credentials")
+        
+        # Show default credentials hint
+        st.sidebar.info("Default admin login: username='admin', password='admin123'")
+    else:
+        st.sidebar.success(f"Logged in: {st.session_state.user['username']} ({st.session_state.user['role']})")
+        if st.sidebar.button("Logout"):
+            st.session_state.user = None
+            st.rerun()
+
+# === MAIN APP FUNCTION ===
+def main():
+    """Complete main application function."""
+    
+    # CRITICAL: Page config must be FIRST
     st.set_page_config(
         page_title="Your LawMate AI Tutor - Document AI Q&A Platform",
         page_icon="📄",
@@ -117,7 +149,7 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Font optimization (AFTER page config)
+    # Font optimization
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap');
@@ -131,7 +163,27 @@ def main():
     if 'qa_history' not in st.session_state:
         st.session_state.qa_history = []
     
-    # Sidebar
+    # === LOGIN SYSTEM ===
+    login_user()
+    
+    # Determine user context
+    is_admin = False
+    user_id = "guest"
+    user_role = "guest"
+    if st.session_state.user:
+        is_admin = st.session_state.user['role'] == 'admin'
+        user_id = st.session_state.user['user_id']
+        user_role = st.session_state.user['role']
+    
+    # Show mode indicator
+    if is_admin:
+        st.success("👑 **Admin Mode** - You can see ALL documents and delete any")
+    elif st.session_state.user:
+        st.info(f"👤 **User Mode** - You see your docs + admin docs")
+    else:
+        st.warning("👥 **Guest Mode** - You can only see admin documents")
+    
+    # === UPLOAD SECTION (Available to ALL) ===
     st.sidebar.title("📤 Upload Document")
     uploaded_file = st.sidebar.file_uploader(
         "Choose a file",
@@ -144,42 +196,42 @@ def main():
     doc_types = ["Ordinance", "Act", "Course Material", "Student Material", "Policy", "Report", "Other"]
     doc_type = st.sidebar.selectbox("Select Document Type", options=doc_types)
     
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔑 Gemini API Key")
-    api_key_input = st.sidebar.text_input("Enter key (if not in secrets):", type="password")
-    if api_key_input:
-        os.environ["GOOGLE_API_KEY"] = api_key_input
-        st.sidebar.success("✅ Key set!")
-    
     if st.sidebar.button("Upload Document", type="primary"):
         if uploaded_file is not None:
             try:
                 with st.spinner('Processing...'):
                     file_manager = st.session_state.file_manager
-                    file_path, doc_id = file_manager.save_uploaded_file(uploaded_file, country, doc_type)
+                    file_content = uploaded_file.getvalue()
                     
-                    text = extract_text(file_path, Path(uploaded_file.name).suffix)
+                    # Extract text from content
+                    text = extract_text(file_content, Path(uploaded_file.name).suffix)
                     
                     if not text:
                         st.sidebar.error("Failed to extract text.")
-                        os.remove(file_path)
                     else:
-                        chunks = chunk_text(text, doc_id, chunk_size=800, overlap=100)
-                        file_manager.add_document(doc_id, uploaded_file.name, country, doc_type, file_path, chunks)
-                        st.sidebar.success(f"✅ Uploaded! ID: {doc_id[:8]}...")
-                        st.sidebar.info(f"Extracted {len(chunks)} chunks")
+                        chunks = chunk_text(text, str(uuid.uuid4()), chunk_size=800, overlap=100)
+                        
+                        # Determine ownership
+                        owner_role = "admin" if is_admin else "user"
+                        
+                        file_manager.add_document(
+                            str(uuid.uuid4()), uploaded_file.name, country, doc_type,
+                            user_id, owner_role, file_content, chunks
+                        )
+                        
+                        st.sidebar.success(f"✅ Uploaded! {len(chunks)} chunks extracted")
                         st.sidebar.text_area("Preview", get_preview_text(text), height=150)
+                        st.rerun()
             
             except Exception as e:
                 st.sidebar.error(f"❌ Upload failed: {str(e)}")
         else:
             st.sidebar.warning("Please select a file first.")
     
-    # Main Area
-    st.title("📄 Your LawMate AI Tutor - Document Q&A Platform")
+    # === FILTERS ===
+    st.title("📄 Your LawMate AI Tutor - Document AI Q&A Platform")
     st.info(f"Using **{DEFAULT_MODEL}** - Free tier: 15 req/min, 1,500 req/day")
     
-    # Filters
     col1, col2, col3 = st.columns([2, 2, 3])
     with col1:
         filter_country = st.selectbox("Filter by Country", options=["All"] + countries, key="country_filter")
@@ -188,15 +240,15 @@ def main():
     with col3:
         search_keyword = st.text_input("Search Documents", placeholder="Enter keyword...")
     
-    # Display documents
+    # === DISPLAY DOCUMENTS (with access control) ===
     st.markdown("### 📚 Uploaded Documents")
     file_manager = st.session_state.file_manager
     
     if search_keyword:
-        documents = file_manager.search_documents(search_keyword)
+        documents = file_manager.search_documents(user_id, user_role, search_keyword)
         st.info(f"Found {len(documents)} documents matching '{search_keyword}'")
     else:
-        documents = file_manager.get_documents(filter_country, filter_type)
+        documents = file_manager.get_documents_by_filters(user_id, user_role, filter_country, filter_type)
     
     if not documents:
         st.info("No documents uploaded yet.")
@@ -210,13 +262,17 @@ def main():
                         st.text_area("Preview", preview, height=100, key=f"preview_{doc['id']}")
                     st.caption(f"ID: {doc['id'][:12]}...")
                     st.caption(f"Chunks: {len(doc.get('chunks', []))}")
+                    st.caption(f"Owner: {'👑 Admin' if doc['owner_role'] == 'admin' else '👤 User'}")
+                
                 with col2:
-                    if st.button("🗑️ Delete", key=f"del_{doc['id']}", type="secondary"):
-                        if file_manager.delete_document(doc['id']):
-                            st.success(f"Deleted {doc['filename']}")
-                            st.rerun()
+                    # Delete button (admin ONLY)
+                    if is_admin:
+                        if st.button("🗑️ Delete", key=f"del_{doc['id']}", type="secondary"):
+                            if file_manager.delete_document(doc['id'], user_id, user_role):
+                                st.success(f"Deleted {doc['filename']}")
+                                st.rerun()
     
-    # Q&A Section
+    # === Q&A SECTION ===
     st.markdown("---")
     st.markdown("### 🙋 Ask a Question")
     available_models = get_available_models()
@@ -234,7 +290,7 @@ def main():
         else:
             try:
                 with st.spinner('Generating answer with Gemini...'):
-                    all_chunks = file_manager.get_all_chunks()
+                    all_chunks = file_manager.get_all_chunks(user_id, user_role)
                     relevant_chunks = find_relevant_chunks(question, all_chunks, top_k=5)
                     
                     result = get_answer_from_chunks(query=question, chunks=relevant_chunks, model=selected_model)
@@ -243,13 +299,13 @@ def main():
                     
                     if result.get('has_document_context', False):
                         if result.get('used_general_knowledge', False):
-                            st.info("ℹ️ **General knowledge enhanced with document context**")
+                            st.info("ℹ️ General knowledge enhanced with document context")
                         elif len(result.get('sources', [])) > 0:
-                            st.success("📄 **Answer based on uploaded documents**")
+                            st.success("📄 Answer based on uploaded documents")
                         else:
-                            st.info("ℹ️ **General knowledge response** (document reference unclear)")
+                            st.info("ℹ️ General knowledge response (document reference unclear)")
                     else:
-                        st.info("ℹ️ **Pure general knowledge response**")
+                        st.info("ℹ️ Pure general knowledge response")
                     
                     st.markdown(result['answer'])
                     
@@ -303,7 +359,7 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
     
-    # History
+    # === HISTORY SECTION ===
     if st.session_state.qa_history:
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 💬 Recent Questions")
@@ -311,10 +367,7 @@ def main():
             with st.sidebar.expander(f"Q{len(st.session_state.qa_history)-i}", expanded=False):
                 st.caption(f"**Q:** {qa['question'][:50]}...")
                 st.caption(f"**A:** {qa['answer'][:100]}...")
-    
-    st.sidebar.markdown("---")
-    st.sidebar.info("✅ **All features active**: Fallback, Notes, Export")
 
-# === This line is optional but good for local testing ===
+# === ENTRY POINT ===
 if __name__ == "__main__":
     main()

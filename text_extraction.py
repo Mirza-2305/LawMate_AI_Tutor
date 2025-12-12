@@ -1,96 +1,84 @@
+# text_extraction.py - Works with file content (bytes)
 import pdfplumber
 from docx import Document
 import pytesseract
 from PIL import Image
-from pathlib import Path
+import os
 from typing import Optional
 
-# Configure pytesseract path if needed (uncomment and set your path)
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-
-def extract_text_from_pdf(file_path: str) -> str:
-    """Extract text from PDF with OCR fallback for scanned documents."""
+def extract_text_from_pdf_file(file_content: bytes) -> str:
+    """Extract text from PDF content."""
     try:
-        text = ""
-        with pdfplumber.open(file_path) as pdf:
-            for i, page in enumerate(pdf.pages):
-                page_text = page.extract_text()
-                
-                if page_text and len(page_text.strip()) > 50:
-                    # Good text extraction
-                    text += page_text + "\n"
-                else:
-                    # Likely scanned image - use OCR
-                    try:
-                        img = page.to_image(resolution=300).original
-                        ocr_text = pytesseract.image_to_string(img, lang='eng+urd')  # Add languages
-                        if ocr_text.strip():
-                            text += f"[OCR Page {i+1}] {ocr_text}\n"
-                    except:
-                        pass
+        temp_path = "/tmp/temp_pdf.pdf"
+        with open(temp_path, "wb") as f:
+            f.write(file_content)
         
+        text = ""
+        with pdfplumber.open(temp_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+        
+        os.remove(temp_path)
         return text.strip()
     except Exception as e:
         raise Exception(f"PDF extraction failed: {str(e)}")
 
-
-def extract_text_from_docx(file_path: str) -> str:
-    """Extract text from DOCX files using python-docx."""
+def extract_text_from_docx_file(file_content: bytes) -> str:
+    """Extract text from DOCX content."""
     try:
-        doc = Document(file_path)
+        temp_path = "/tmp/temp_docx.docx"
+        with open(temp_path, "wb") as f:
+            f.write(file_content)
+        
+        doc = Document(temp_path)
         text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        
+        os.remove(temp_path)
         return text.strip()
     except Exception as e:
         raise Exception(f"DOCX extraction failed: {str(e)}")
 
-
-def extract_text_from_image(file_path: str) -> str:
-    """Extract text from images using Tesseract OCR."""
+def extract_text_from_image_file(file_content: bytes) -> str:
+    """Extract text from image content."""
     try:
-        image = Image.open(file_path)
+        temp_path = "/tmp/temp_image.png"
+        with open(temp_path, "wb") as f:
+            f.write(file_content)
+        
+        image = Image.open(temp_path)
         text = pytesseract.image_to_string(image)
+        
+        os.remove(temp_path)
         return text.strip()
     except Exception as e:
         raise Exception(f"OCR extraction failed: {str(e)}")
 
-
-def extract_text_from_txt(file_path: str) -> str:
-    """Extract text from plain text files."""
+def extract_text_from_txt_file(file_content: bytes) -> str:
+    """Extract text from TXT content."""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            text = f.read()
-        return text.strip()
+        return file_content.decode('utf-8').strip()
     except Exception as e:
         raise Exception(f"TXT extraction failed: {str(e)}")
 
-
-def extract_text(file_path: str, file_extension: str) -> str:
-    """
-    Universal text extraction function that routes to appropriate extractor.
-    
-    Args:
-        file_path: Path to the file
-        file_extension: File extension (e.g., '.pdf', '.docx')
-    
-    Returns:
-        Extracted text as string
-    """
+def extract_text(file_content: bytes, file_extension: str) -> str:
+    """Universal text extraction from file content."""
     file_extension = file_extension.lower()
     
     if file_extension == '.pdf':
-        return extract_text_from_pdf(file_path)
+        return extract_text_from_pdf_file(file_content)
     elif file_extension == '.docx':
-        return extract_text_from_docx(file_path)
+        return extract_text_from_docx_file(file_content)
     elif file_extension in ['.png', '.jpg', '.jpeg']:
-        return extract_text_from_image(file_path)
+        return extract_text_from_image_file(file_content)
     elif file_extension == '.txt':
-        return extract_text_from_txt(file_path)
+        return extract_text_from_txt_file(file_content)
     else:
         raise ValueError(f"Unsupported file type: {file_extension}")
 
-
 def get_preview_text(text: str, max_chars: int = 200) -> str:
-    """Get a preview of the first N characters of text."""
+    """Get preview text."""
     if not text:
         return "No text extracted"
     

@@ -2,3 +2,4 @@ tesseract-ocr
 tesseract-ocr-eng
 tesseract-ocr-urd
 libtesseract-dev
+libtesseract-dev
