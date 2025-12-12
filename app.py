@@ -248,7 +248,7 @@ def main():
         documents = file_manager.search_documents(user_id, user_role, search_keyword)
         st.info(f"Found {len(documents)} documents matching '{search_keyword}'")
     else:
-        documents = file_manager.get_documents_by_filters(user_id, user_role, filter_country, filter_type)
+        documents = file_manager.get_documents(user_id, user_role, filter_country, filter_type)
     
     if not documents:
         st.info("No documents uploaded yet.")
