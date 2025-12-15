@@ -1,4 +1,4 @@
-# app.py - Complete Access Control & Authentication Version
+# app.py - Final working version
 import streamlit as st
 from pathlib import Path
 import sys
@@ -21,7 +21,6 @@ from docx import Document
 
 # --- EXPORT FUNCTIONS ---
 def create_pdf_export(data: dict) -> bytes:
-    """Create PDF from Q&A response."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=72)
     
@@ -69,7 +68,6 @@ def create_pdf_export(data: dict) -> bytes:
     return buffer.read()
 
 def create_docx_export(data: dict) -> bytes:
-    """Create DOCX from Q&A response."""
     buffer = BytesIO()
     doc = Document()
     
@@ -106,7 +104,7 @@ def create_docx_export(data: dict) -> bytes:
     buffer.seek(0)
     return buffer.read()
 
-# === AUTHENTICATION SYSTEM ===
+# === AUTHENTICATION ===
 def login_user():
     """Handle user login and session management."""
     st.sidebar.title("🔐 User Login")
@@ -129,7 +127,6 @@ def login_user():
             else:
                 st.sidebar.error("❌ Invalid credentials")
         
-        # Show default credentials hint
         st.sidebar.info("Default admin login: username='admin', password='admin123'")
     else:
         st.sidebar.success(f"Logged in: {st.session_state.user['username']} ({st.session_state.user['role']})")
@@ -137,7 +134,7 @@ def login_user():
             st.session_state.user = None
             st.rerun()
 
-# === MAIN APP FUNCTION ===
+# === MAIN FUNCTION ===
 def main():
     """Complete main application function."""
     
@@ -163,7 +160,7 @@ def main():
     if 'qa_history' not in st.session_state:
         st.session_state.qa_history = []
     
-    # === LOGIN SYSTEM ===
+    # Login system
     login_user()
     
     # Determine user context
@@ -177,13 +174,13 @@ def main():
     
     # Show mode indicator
     if is_admin:
-        st.success("👑 **Admin Mode** - You can see ALL documents and delete any")
+        st.success("👑 Admin Mode - You can see ALL documents and delete any")
     elif st.session_state.user:
-        st.info(f"👤 **User Mode** - You see your docs + admin docs")
+        st.info(f"👤 User Mode - You see your docs + admin docs")
     else:
-        st.warning("👥 **Guest Mode** - You can only see admin documents")
+        st.warning("👥 Guest Mode - You can only see admin documents")
     
-    # === UPLOAD SECTION (Available to ALL) ===
+    # === UPLOAD SECTION ===
     st.sidebar.title("📤 Upload Document")
     uploaded_file = st.sidebar.file_uploader(
         "Choose a file",
@@ -201,26 +198,18 @@ def main():
             try:
                 with st.spinner('Processing...'):
                     file_manager = st.session_state.file_manager
-                    
-                    # ✅ FIX 1: Read file content as bytes FIRST
                     file_content = uploaded_file.getvalue()
-                    
-                    # ✅ FIX 2: Generate ID without saving to disk
                     doc_id = str(uuid.uuid4())
                     
-                    # ✅ FIX 3: Extract text directly from bytes
+                    # Extract text
                     text = extract_text(file_content, Path(uploaded_file.name).suffix)
                     
                     if not text or len(text.strip()) < 50:
-                        st.sidebar.error("❌ Failed to extract meaningful text. Document may be scanned images.")
+                        st.sidebar.error("❌ Failed to extract text. Document may be scanned images.")
                     else:
-                        # ✅ FIX 4: Generate chunks
                         chunks = chunk_text(text, doc_id, chunk_size=800, overlap=100)
-                        
-                        # ✅ FIX 5: Determine ownership
                         owner_role = "admin" if is_admin else "user"
                         
-                        # ✅ FIX 6: Save to database with BLOB
                         file_manager.add_document(
                             doc_id, uploaded_file.name, country, doc_type,
                             user_id, owner_role, file_content, chunks
@@ -232,11 +221,11 @@ def main():
             
             except Exception as e:
                 st.sidebar.error(f"❌ Upload failed: {str(e)}")
-                st.sidebar.error(f"Debug: {type(e).__name__}")
+                st.sidebar.error(f"Debug info: {type(e).__name__}")
         else:
             st.sidebar.warning("Please select a file first.")
     
-    # === FILTERS ===
+    # === MAIN DISPLAY ===
     st.title("📄 Your LawMate AI Tutor - Document AI Q&A Platform")
     st.info(f"Using **{DEFAULT_MODEL}** - Free tier: 15 req/min, 1,500 req/day")
     
@@ -248,7 +237,7 @@ def main():
     with col3:
         search_keyword = st.text_input("Search Documents", placeholder="Enter keyword...")
     
-    # === DISPLAY DOCUMENTS (with access control) ===
+    # === DOCUMENTS LIST ===
     st.markdown("### 📚 Uploaded Documents")
     file_manager = st.session_state.file_manager
     
@@ -256,7 +245,7 @@ def main():
         documents = file_manager.search_documents(user_id, user_role, search_keyword)
         st.info(f"Found {len(documents)} documents matching '{search_keyword}'")
     else:
-        documents = file_manager.get_documents(user_id, user_role, filter_country, filter_type)
+        documents = file_manager.get_documents_by_filters(user_id, user_role, filter_country, filter_type)
     
     if not documents:
         st.info("No documents uploaded yet.")
@@ -273,7 +262,6 @@ def main():
                     st.caption(f"Owner: {'👑 Admin' if doc['owner_role'] == 'admin' else '👤 User'}")
                 
                 with col2:
-                    # Delete button (admin ONLY)
                     if is_admin:
                         if st.button("🗑️ Delete", key=f"del_{doc['id']}", type="secondary"):
                             if file_manager.delete_document(doc['id'], user_id, user_role):
@@ -307,13 +295,13 @@ def main():
                     
                     if result.get('has_document_context', False):
                         if result.get('used_general_knowledge', False):
-                            st.info("ℹ️ General knowledge enhanced with document context")
+                            st.info("ℹ️ **General knowledge enhanced with document context**")
                         elif len(result.get('sources', [])) > 0:
-                            st.success("📄 Answer based on uploaded documents")
+                            st.success("📄 **Answer based on uploaded documents**")
                         else:
-                            st.info("ℹ️ General knowledge response (document reference unclear)")
+                            st.info("ℹ️ **General knowledge response** (document reference unclear)")
                     else:
-                        st.info("ℹ️ Pure general knowledge response")
+                        st.info("ℹ️ **Pure general knowledge response**")
                     
                     st.markdown(result['answer'])
                     
@@ -367,7 +355,7 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
     
-    # === HISTORY SECTION ===
+    # === HISTORY ===
     if st.session_state.qa_history:
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 💬 Recent Questions")
