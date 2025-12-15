@@ -1,20 +1,38 @@
 # file_upload.py - Handles file content (bytes)
 import os
 import uuid
+import platform
 from pathlib import Path
 from typing import Dict, List, Optional
 from database import DocumentDatabase
 
 class FileManager:
-    def __init__(self, db_path: str = "/tmp/documents.db"):
-        self.db = DocumentDatabase(db_path)
+    def __init__(self, db_path: str = None):
+        """Auto-detect OS and set appropriate path."""
+        if db_path is None:
+            if platform.system() == "Windows":
+                db_path = str(Path(__file__).parent / "documents.db")
+            else:
+                db_path = "/tmp/documents.db"
+        
+        self.db_path = db_path
+        self.init_database()
     
     def add_document(self, doc_id: str, filename: str, country: str, 
                     doc_type: str, owner_id: str, owner_role: str, 
-                    file_content: bytes, chunks: List[Dict]):
-        """Add document to database with ownership."""
-        return self.db.add_document(filename, country, doc_type, owner_id, 
-                                   owner_role, file_content, chunks)
+                    file_content: bytes, chunks: List[Dict]) -> str:
+        """Save document with BLOB to database."""
+        upload_date = datetime.now().isoformat()
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO documents 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (doc_id, filename, country, doc_type, upload_date,
+                owner_id, owner_role, file_content, json.dumps(chunks))
+            )
+            conn.commit()
+        return doc_id
     
     def get_documents(self, user_id: str, user_role: str, 
                      country: Optional[str] = None, 

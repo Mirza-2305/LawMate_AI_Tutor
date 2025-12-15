@@ -201,21 +201,28 @@ def main():
             try:
                 with st.spinner('Processing...'):
                     file_manager = st.session_state.file_manager
+                    
+                    # ✅ FIX 1: Read file content as bytes FIRST
                     file_content = uploaded_file.getvalue()
                     
-                    # Extract text from content
+                    # ✅ FIX 2: Generate ID without saving to disk
+                    doc_id = str(uuid.uuid4())
+                    
+                    # ✅ FIX 3: Extract text directly from bytes
                     text = extract_text(file_content, Path(uploaded_file.name).suffix)
                     
-                    if not text:
-                        st.sidebar.error("Failed to extract text.")
+                    if not text or len(text.strip()) < 50:
+                        st.sidebar.error("❌ Failed to extract meaningful text. Document may be scanned images.")
                     else:
-                        chunks = chunk_text(text, str(uuid.uuid4()), chunk_size=800, overlap=100)
+                        # ✅ FIX 4: Generate chunks
+                        chunks = chunk_text(text, doc_id, chunk_size=800, overlap=100)
                         
-                        # Determine ownership
+                        # ✅ FIX 5: Determine ownership
                         owner_role = "admin" if is_admin else "user"
                         
+                        # ✅ FIX 6: Save to database with BLOB
                         file_manager.add_document(
-                            str(uuid.uuid4()), uploaded_file.name, country, doc_type,
+                            doc_id, uploaded_file.name, country, doc_type,
                             user_id, owner_role, file_content, chunks
                         )
                         
@@ -225,6 +232,7 @@ def main():
             
             except Exception as e:
                 st.sidebar.error(f"❌ Upload failed: {str(e)}")
+                st.sidebar.error(f"Debug: {type(e).__name__}")
         else:
             st.sidebar.warning("Please select a file first.")
     
