@@ -7,3 +7,4 @@ pytesseract==0.3.10
 Pillow==10.4.0
 httpx==0.28.1
 reportlab==4.2.5
+supabase==2.4.3

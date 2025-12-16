@@ -10,7 +10,7 @@ from io import BytesIO
 # Add path and imports
 sys.path.append(str(Path(__file__).parent))
 
-from file_upload import FileManager
+from supabase_client import SupabaseManager
 from text_extraction import extract_text, get_preview_text
 from chunking import chunk_text, find_relevant_chunks
 from qa import get_answer_from_chunks, get_available_models, DEFAULT_MODEL
@@ -155,7 +155,7 @@ def main():
     
     # Initialize session state
     if 'file_manager' not in st.session_state:
-        st.session_state.file_manager = FileManager()
+        st.session_state.file_manager = SupabaseManager()  # ✅ Use Supabase
     
     if 'qa_history' not in st.session_state:
         st.session_state.qa_history = []
