@@ -125,17 +125,53 @@ class SupabaseManager:
         st.stop()
     
     def verify_user(self, username: str, password: str) -> Optional[Dict]:
-        """Secure login with SHA256 hashing."""
+        """Debug version that shows exactly what's happening."""
         try:
-            hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+            st.sidebar.markdown("### 🔍 DEBUG: Login Attempt")
+            
+            # Clean inputs
+            username_clean = username.strip().lower()
+            password_clean = password.strip()
+            
+            # Generate hash
+            hashed_pw = hashlib.sha256(password_clean.encode()).hexdigest()
+            
+            st.sidebar.write(f"**Input username (clean):** `{username_clean}`")
+            st.sidebar.write(f"**Input password hash:** `{hashed_pw}`")
+            
+            # Show ALL users in DB
+            all_users = self.client.table("users").select("*").execute()
+            st.sidebar.write(f"**All users in DB:** {all_users.data}")
+            
+            # Show query details
+            st.sidebar.write(f"**Query condition:** username='{username_clean}' AND password='{hashed_pw}'")
+            
+            # Query with case-insensitive match
             result = self.client.table("users") \
                 .select("user_id, username, role") \
-                .eq("username", username.strip()) \
+                .ilike("username", username_clean) \
                 .eq("password", hashed_pw) \
                 .execute()
-            return result.data[0] if result.data else None
+            
+            st.sidebar.write(f"**Query result:** {result.data}")
+            
+            if result.data:
+                st.sidebar.success("✅ Login successful!")
+                return result.data[0]
+            else:
+                st.sidebar.error("❌ No matching user found")
+                
+                # Show users with matching username (any password)
+                user_check = self.client.table("users") \
+                    .select("*") \
+                    .ilike("username", username_clean) \
+                    .execute()
+                st.sidebar.write(f"**Users with matching username (any password):** {user_check.data}")
+                
+                return None
+                
         except Exception as e:
-            st.error(f"❌ Auth error: {e}")
+            st.sidebar.error(f"❌ Exception: {str(e)}")
             return None
     
     def add_document(self, filename: str, country: str, doc_type: str,
