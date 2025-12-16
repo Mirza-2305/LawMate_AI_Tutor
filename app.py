@@ -211,7 +211,7 @@ def main():
                         owner_role = "admin" if is_admin else "user"
                         
                         file_manager.add_document(
-                            doc_id, uploaded_file.name, country, doc_type,
+                            uploaded_file.name, country, doc_type,
                             user_id, owner_role, file_content, chunks
                         )
                         
