@@ -89,13 +89,13 @@ class SupabaseManager:
             return None
     
     def add_document(self, filename: str, country: str, doc_type: str,
-                     owner_id: str, owner_role: str, file_content: bytes,
-                     chunks: List[Dict]) -> str:
-        """Upload with comprehensive error handling."""
+                    owner_id: str, owner_role: str, file_content: bytes,
+                    chunks: List[Dict]) -> str:
+        """Upload document to Supabase storage and save metadata with proper admin access."""
         try:
             st.sidebar.write("📤 **Debug Upload**")
             
-            # Generate IDs
+            # Generate unique document ID and storage path
             doc_id = str(uuid.uuid4())
             file_path = f"{owner_id}/{doc_id}_{filename}"
             
@@ -104,18 +104,24 @@ class SupabaseManager:
             st.sidebar.write(f"File size: {len(file_content)} bytes")
             st.sidebar.write(f"Chunks count: {len(chunks)}")
             
-            # Check bucket exists
+            # Ensure storage bucket and user folder exist
             try:
                 self.client.storage.from_("documents").list(path=owner_id)
-            except:
+            except Exception:
                 st.sidebar.info("Creating user folder in bucket...")
             
-            # Upload file
-            self.client.storage.from_("documents").upload(
-                file_path, file_content, {"content-type": "application/octet-stream"}
+            # Upload file to Supabase storage
+            storage_bucket = self.client.storage.from_("documents")
+            storage_bucket.upload(
+                file_path,
+                file_content,
+                {"content-type": "application/octet-stream"},
+                # If the file exists, overwrite
+                upsert=True
             )
             
-            public_url = self.client.storage.from_("documents").get_public_url(file_path)
+            # Get public URL
+            public_url = storage_bucket.get_public_url(file_path)
             
             # Prepare metadata
             metadata = {
@@ -131,20 +137,22 @@ class SupabaseManager:
                 "upload_date": datetime.now().isoformat()
             }
             
-            st.sidebar.write(f"Metadata: {metadata.keys()}")
+            st.sidebar.write(f"Metadata keys: {list(metadata.keys())}")
             
-            # Insert metadata
-            result = self.client.table("documents").insert(metadata).execute()
+            # Insert metadata using **admin client** to bypass RLS
+            result = self.admin_client.table("documents").insert(metadata).execute()
             
             if result.data:
-                st.sidebar.success("✅ Document metadata saved")
+                st.sidebar.success("✅ Document metadata saved successfully")
                 return doc_id
             else:
                 st.sidebar.error("❌ Failed to save metadata")
+                st.sidebar.write(f"Response: {result}")
                 return None
-                
+            
         except Exception as e:
             st.sidebar.error(f"❌ Upload failed: {str(e)}")
+            st.sidebar.exception(e)
             raise e
     
     def get_documents_by_filters(self, user_id: str, user_role: str,
