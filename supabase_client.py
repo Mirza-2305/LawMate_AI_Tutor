@@ -1,13 +1,5 @@
-# supabase_client.py - Complete with table creation and error handling
-import os
-import streamlit as st
-from supabase import create_client, Client
-from typing import List, Dict, Optional
-import json
-import uuid
-from datetime import datetime
+# supabase_client.py - Production-ready, fully debugged
 
-# supabase_client.py - Production-ready with full debug
 import os
 import streamlit as st
 from supabase import create_client, Client
@@ -16,58 +8,59 @@ import hashlib
 import uuid
 from datetime import datetime
 
+
 class SupabaseManager:
     def __init__(self):
-        """Initialize with explicit error messages."""
-        # Get secrets
+        """Initialize Supabase clients with proper error handling."""
+        # Load secrets
         self.supabase_url = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
         self.service_key = os.getenv("SUPABASE_SERVICE_KEY") or st.secrets.get("SUPABASE_SERVICE_KEY")
-        
-        # Validate credentials exist
+
         if not self.supabase_url:
-            raise ValueError("❌ SUPABASE_URL not found in secrets or .env")
+            raise ValueError("❌ SUPABASE_URL not found in .env or Streamlit secrets")
         if not self.supabase_key:
-            raise ValueError("❌ SUPABASE_KEY not found in secrets or .env")
-        
-        # Initialize clients
+            raise ValueError("❌ SUPABASE_KEY not found in .env or Streamlit secrets")
+
+        # Create clients
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
-        self.admin_client: Client = self.client  # Default, override if service key exists
-        
+        self.admin_client: Client = self.client  # default
+
         if self.service_key:
             self.admin_client = create_client(self.supabase_url, self.service_key)
-            st.sidebar.success("✅ Using service role for admin operations")
+            st.sidebar.success("✅ Using service role (admin) for secure operations")
         else:
-            st.sidebar.info("⚠️ No SUPABASE_SERVICE_KEY - some admin functions may fail")
-        
-        # Initialize infrastructure
+            st.sidebar.warning("⚠️ No SUPABASE_SERVICE_KEY found - admin operations may fail")
+
+        # Check storage bucket
         self._setup_infrastructure()
-    
+
     def _setup_infrastructure(self):
-        """Create bucket if missing - with proper error handling."""
+        """Ensure 'documents' bucket exists."""
         try:
-            # Check if bucket exists
             self.client.storage.from_("documents").list()
             st.sidebar.success("📂 Storage bucket ready")
         except Exception as e:
-            error_msg = str(e).lower()
-            if "not found" in error_msg or "bucket" in error_msg:
+            msg = str(e).lower()
+            if "not found" in msg or "bucket" in msg:
                 st.error("📂 CRITICAL: 'documents' bucket not found!")
-                st.info("Fix: Go to Supabase Dashboard → Storage → Create new bucket named 'documents'")
+                st.info("Please create the bucket in Supabase Storage: 'documents'")
                 st.stop()
             else:
-                st.warning(f"⚠️ Storage check: {e}")
-    
+                st.warning(f"⚠️ Storage check warning: {e}")
+
+    # === USER AUTHENTICATION ===
     def verify_user(self, username: str, password: str) -> Optional[Dict]:
+        """Verify user credentials with hashed password."""
         try:
             username_clean = username.strip().lower()
             password_hash = hashlib.sha256(password.strip().encode()).hexdigest()
 
             st.sidebar.write("🔍 Login Debug")
-            st.sidebar.write("Username:", username_clean)
-            st.sidebar.write("Password hash:", password_hash)
+            st.sidebar.write(f"Username: {username_clean}")
+            st.sidebar.write(f"Password hash: {password_hash}")
 
-            # 🔑 IMPORTANT: use admin_client (service role)
+            # Use admin_client to avoid permission issues
             result = self.admin_client.table("users") \
                 .select("*") \
                 .eq("username", username_clean) \
@@ -75,8 +68,7 @@ class SupabaseManager:
                 .limit(1) \
                 .execute()
 
-            st.sidebar.write("DB result:", result.data)
-
+            st.sidebar.write(f"DB Result: {result.data}")
             if result.data and len(result.data) == 1:
                 st.sidebar.success("✅ Login successful")
                 return result.data[0]
@@ -86,44 +78,34 @@ class SupabaseManager:
 
         except Exception as e:
             st.sidebar.error(f"❌ Login exception: {e}")
+            st.sidebar.exception(e)
             return None
-    
+
+    # === DOCUMENT UPLOAD ===
     def add_document(self, filename: str, country: str, doc_type: str,
-                    owner_id: str, owner_role: str, file_content: bytes,
-                    chunks: List[Dict]) -> str:
-        """Upload document to Supabase storage and save metadata with proper admin access."""
+                     owner_id: str, owner_role: str, file_content: bytes,
+                     chunks: List[Dict]) -> str:
+        """Upload file to Supabase storage and insert metadata."""
         try:
             st.sidebar.write("📤 **Debug Upload**")
             
-            # Generate unique document ID and storage path
             doc_id = str(uuid.uuid4())
             file_path = f"{owner_id}/{doc_id}_{filename}"
-            
+
             st.sidebar.write(f"Doc ID: {doc_id}")
             st.sidebar.write(f"File path: {file_path}")
             st.sidebar.write(f"File size: {len(file_content)} bytes")
             st.sidebar.write(f"Chunks count: {len(chunks)}")
-            
-            # Ensure storage bucket and user folder exist
-            try:
-                self.client.storage.from_("documents").list(path=owner_id)
-            except Exception:
-                st.sidebar.info("Creating user folder in bucket...")
-            
-            # Upload file to Supabase storage
+
             storage_bucket = self.client.storage.from_("documents")
             storage_bucket.upload(
                 file_path,
                 file_content,
                 {"content-type": "application/octet-stream"},
-                # If the file exists, overwrite
                 upsert=True
             )
-            
-            # Get public URL
             public_url = storage_bucket.get_public_url(file_path)
-            
-            # Prepare metadata
+
             metadata = {
                 "id": doc_id,
                 "filename": filename,
@@ -136,119 +118,100 @@ class SupabaseManager:
                 "chunks": chunks,
                 "upload_date": datetime.now().isoformat()
             }
-            
+
             st.sidebar.write(f"Metadata keys: {list(metadata.keys())}")
-            
-            # Insert metadata using **admin client** to bypass RLS
+
+            # Insert metadata
             result = self.admin_client.table("documents").insert(metadata).execute()
-            
+
             if result.data:
-                st.sidebar.success("✅ Document metadata saved successfully")
+                st.sidebar.success("✅ Document metadata saved")
                 return doc_id
             else:
                 st.sidebar.error("❌ Failed to save metadata")
                 st.sidebar.write(f"Response: {result}")
                 return None
-            
+
         except Exception as e:
             st.sidebar.error(f"❌ Upload failed: {str(e)}")
             st.sidebar.exception(e)
             raise e
-    
+
+    # === DOCUMENT QUERY ===
     def get_documents_by_filters(self, user_id: str, user_role: str,
                                  country: Optional[str] = None,
                                  doc_type: Optional[str] = None) -> List[Dict]:
         """Fetch documents with access control."""
         try:
             query = self.client.table("documents").select("*")
-            
-            # Access control: admin sees all, users see their own + admin docs
+
+            # Admin sees all, others see own + admin docs
             if user_role != "admin":
-                query = query.or_(f"owner_role.eq.admin,owner_id.eq.\"{user_id}\"")
-            
+                query = query.or_(f"owner_role.eq.admin,owner_id.eq.{user_id}")
+
             if country and country != "All":
                 query = query.eq("country", country)
-            
+
             if doc_type and doc_type != "All":
                 query = query.eq("doc_type", doc_type)
-            
+
             result = query.order("upload_date", desc=True).execute()
-            return result.data
-        
+            return result.data or []
+
         except Exception as e:
-            error_msg = str(e)
-            if "does not exist" in error_msg:
-                st.error("❌ Supabase tables not found. Please run table creation.")
-            else:
-                st.error(f"❌ Supabase error: {error_msg}")
+            st.error(f"❌ Fetch documents error: {e}")
             return []
-    
+
     def search_documents(self, user_id: str, user_role: str, keyword: str) -> List[Dict]:
-        """Search documents with access control."""
+        """Search documents using filename or chunk text."""
         try:
             search_term = f"%{keyword.lower()}%"
-            query = self.client.table("documents") \
-                .select("*") \
+            query = self.client.table("documents").select("*") \
                 .or_(f"filename.ilike.{search_term},chunks.cs.{search_term}") \
                 .order("upload_date", desc=True)
-            
+
             if user_role != "admin":
-                query = query.or_(f"owner_role.eq.admin,owner_id.eq.\"{user_id}\"")
-            
+                query = query.or_(f"owner_role.eq.admin,owner_id.eq.{user_id}")
+
             result = query.execute()
-            return result.data
+            return result.data or []
         except Exception as e:
             st.error(f"❌ Search error: {e}")
             return []
-    
+
+    # === DOCUMENT DELETE ===
     def delete_document(self, doc_id: str, user_id: str, user_role: str) -> bool:
         """Delete document (admin only)."""
         if user_role != "admin":
             return False
-        
         try:
-            # Delete from storage
             doc = self.client.table("documents").select("file_path").eq("id", doc_id).execute()
             if doc.data:
                 file_path = doc.data[0]['file_path']
                 self.client.storage.from_("documents").remove([file_path])
-            
-            # Delete metadata
+
             result = self.client.table("documents").delete().eq("id", doc_id).execute()
-            return len(result.data) > 0
+            return bool(result.data)
         except Exception as e:
             st.error(f"❌ Delete error: {e}")
             return False
-    
+
+    # === CHUNKS ===
     def get_all_chunks(self, user_id: str, user_role: str) -> List[Dict]:
-        """Get all accessible chunks."""
+        """Return all chunks accessible to the user."""
         try:
             chunks = []
             docs = self.get_documents_by_filters(user_id, user_role)
             for doc in docs:
-                for chunk in doc.get('chunks', []):
+                for chunk in doc.get("chunks", []):
                     chunk_with_meta = chunk.copy()
                     chunk_with_meta.update({
-                        'filename': doc['filename'],
-                        'country': doc['country'],
-                        'doc_type': doc['doc_type']
+                        "filename": doc["filename"],
+                        "country": doc["country"],
+                        "doc_type": doc["doc_type"]
                     })
                     chunks.append(chunk_with_meta)
             return chunks
         except Exception as e:
             st.error(f"❌ Chunks error: {e}")
             return []
-    
-    def verify_user(self, username: str, password: str) -> Optional[Dict]:
-        """Verify user credentials."""
-        try:
-            result = self.client.table("users") \
-                .select("user_id, username, role") \
-                .eq("username", username) \
-                .eq("password", password) \
-                .execute()
-            
-            return result.data[0] if result.data else None
-        except Exception as e:
-            st.error(f"❌ Auth error: {e}")
-            return None
