@@ -160,7 +160,7 @@ class SupabaseManager:
             
             # Access control: admin sees all, users see their own + admin docs
             if user_role != "admin":
-                query = query.or_(f"owner_id.eq.{user_id},owner_role.eq.admin")
+                query = query.or_(f"owner_role.eq.admin,owner_id.eq.\"{user_id}\"")
             
             if country and country != "All":
                 query = query.eq("country", country)
@@ -189,7 +189,7 @@ class SupabaseManager:
                 .order("upload_date", desc=True)
             
             if user_role != "admin":
-                query = query.or_(f"owner_id.eq.{user_id},owner_role.eq.admin")
+                query = query.or_(f"owner_role.eq.admin,owner_id.eq.\"{user_id}\"")
             
             result = query.execute()
             return result.data
