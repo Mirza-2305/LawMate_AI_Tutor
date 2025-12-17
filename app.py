@@ -198,32 +198,46 @@ def main():
             try:
                 with st.spinner('Processing...'):
                     file_manager = st.session_state.file_manager
+                    
+                    # Read file
                     file_content = uploaded_file.getvalue()
-                    doc_id = str(uuid.uuid4())
+                    if not file_content:
+                        st.sidebar.error("❌ File is empty")
+                        st.stop()
                     
                     # Extract text
                     text = extract_text(file_content, Path(uploaded_file.name).suffix)
                     
                     if not text or len(text.strip()) < 50:
                         st.sidebar.error("❌ Failed to extract text. Document may be scanned images.")
+                        st.sidebar.info("Tip: Try uploading a text-based PDF or DOCX file")
                     else:
-                        chunks = chunk_text(text, doc_id, chunk_size=800, overlap=100)
+                        chunks = chunk_text(text, str(uuid.uuid4()), chunk_size=800, overlap=100)
                         owner_role = "admin" if is_admin else "user"
                         
-                        file_manager.add_document(
+                        # Debug info before upload
+                        st.sidebar.write(f"**Ready to upload:**")
+                        st.sidebar.write(f"- Filename: {uploaded_file.name}")
+                        st.sidebar.write(f"- Owner: {user_id} ({owner_role})")
+                        st.sidebar.write(f"- Chunks: {len(chunks)}")
+                        
+                        # Upload
+                        doc_id = file_manager.add_document(
                             uploaded_file.name, country, doc_type,
                             user_id, owner_role, file_content, chunks
                         )
                         
-                        st.sidebar.success(f"✅ Uploaded! {len(chunks)} chunks extracted")
-                        st.sidebar.text_area("Preview", get_preview_text(text), height=150)
-                        st.rerun()
-            
+                        if doc_id:
+                            st.sidebar.success(f"✅ Uploaded! ID: {doc_id[:8]}...")
+                            st.rerun()
+                        else:
+                            st.sidebar.error("❌ Upload returned no document ID")
+                
             except Exception as e:
-                st.sidebar.error(f"❌ Upload failed: {str(e)}")
-                st.sidebar.error(f"Debug info: {type(e).__name__}")
+                st.sidebar.error(f"❌ Upload error: {str(e)}")
+                st.sidebar.code(str(e))  # Show full error
         else:
-            st.sidebar.warning("Please select a file first.")
+            st.sidebar.warning("Please select a file first")
     
     # === MAIN DISPLAY ===
     st.title("📄 Your LawMate AI Tutor - Document AI Q&A Platform")
