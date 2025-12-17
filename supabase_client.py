@@ -61,34 +61,31 @@ class SupabaseManager:
     def verify_user(self, username: str, password: str) -> Optional[Dict]:
         try:
             username_clean = username.strip().lower()
-            password_clean = password.strip()
+            password_hash = hashlib.sha256(password.strip().encode()).hexdigest()
 
-            password_hash = hashlib.sha256(password_clean.encode("utf-8")).hexdigest()
-
-            # DEBUG (remove later)
             st.sidebar.write("🔍 Login Debug")
-            st.sidebar.write(f"Username: {username_clean}")
-            st.sidebar.write(f"Password hash: {password_hash}")
+            st.sidebar.write("Username:", username_clean)
+            st.sidebar.write("Password hash:", password_hash)
 
-            result = (
-                self.client
-                .table("users")
-                .select("*")
-                .eq("username", username_clean)   # ✅ USE eq NOT ilike
-                .eq("password", password_hash)
-                .limit(1)
+            # 🔑 IMPORTANT: use admin_client (service role)
+            result = self.admin_client.table("users") \
+                .select("*") \
+                .eq("username", username_clean) \
+                .eq("password", password_hash) \
+                .limit(1) \
                 .execute()
-            )
 
-            if result.data:
+            st.sidebar.write("DB result:", result.data)
+
+            if result.data and len(result.data) == 1:
                 st.sidebar.success("✅ Login successful")
                 return result.data[0]
 
-            st.sidebar.error("❌ Invalid username or password")
+            st.sidebar.error("❌ Invalid credentials")
             return None
 
         except Exception as e:
-            st.sidebar.error(f"❌ Login error: {e}")
+            st.sidebar.error(f"❌ Login exception: {e}")
             return None
     
     def add_document(self, filename: str, country: str, doc_type: str,
