@@ -59,37 +59,36 @@ class SupabaseManager:
                 st.warning(f"⚠️ Storage check: {e}")
     
     def verify_user(self, username: str, password: str) -> Optional[Dict]:
-        """Verify with debug logging."""
         try:
-            # Clean and hash
             username_clean = username.strip().lower()
-            password_hash = hashlib.sha256(password.strip().encode()).hexdigest()
-            
-            st.sidebar.write("🔍 **Debug Login**")
-            st.sidebar.write(f"Username: `{username_clean}`")
-            st.sidebar.write(f"Password hash: `{password_hash}`")
-            
-            # Query
-            result = self.client.table("users") \
-                .select("*") \
-                .ilike("username", username_clean) \
-                .eq("password", password_hash) \
+            password_clean = password.strip()
+
+            password_hash = hashlib.sha256(password_clean.encode("utf-8")).hexdigest()
+
+            # DEBUG (remove later)
+            st.sidebar.write("🔍 Login Debug")
+            st.sidebar.write(f"Username: {username_clean}")
+            st.sidebar.write(f"Password hash: {password_hash}")
+
+            result = (
+                self.client
+                .table("users")
+                .select("*")
+                .eq("username", username_clean)   # ✅ USE eq NOT ilike
+                .eq("password", password_hash)
+                .limit(1)
                 .execute()
-            
-            st.sidebar.write(f"Query result: {result.data}")
-            
+            )
+
             if result.data:
                 st.sidebar.success("✅ Login successful")
                 return result.data[0]
-            
-            # Show what users exist for debugging
-            all_users = self.client.table("users").select("username, role").execute()
-            st.sidebar.write(f"All users: {[u['username'] for u in all_users.data]}")
-            
+
+            st.sidebar.error("❌ Invalid username or password")
             return None
-            
+
         except Exception as e:
-            st.sidebar.error(f"❌ Login error: {str(e)}")
+            st.sidebar.error(f"❌ Login error: {e}")
             return None
     
     def add_document(self, filename: str, country: str, doc_type: str,
