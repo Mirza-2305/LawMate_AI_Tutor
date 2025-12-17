@@ -1,4 +1,4 @@
-# supabase_client.py - Production-ready with full debug
+# supabase_client.py - FINAL & COMPLETE
 import os
 import streamlit as st
 from supabase import create_client, Client
@@ -9,137 +9,107 @@ from datetime import datetime
 
 class SupabaseManager:
     def __init__(self):
-        """Initialize with explicit error messages."""
-        # Get secrets
         self.supabase_url = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
         self.service_key = os.getenv("SUPABASE_SERVICE_KEY") or st.secrets.get("SUPABASE_SERVICE_KEY")
-        
-        # Validate credentials exist
-        if not self.supabase_url:
-            raise ValueError("❌ SUPABASE_URL not found in secrets or .env")
-        if not self.supabase_key:
-            raise ValueError("❌ SUPABASE_KEY not found in secrets or .env")
-        
-        # Initialize clients
+
+        if not self.supabase_url or not self.supabase_key:
+            raise ValueError("❌ Supabase credentials missing")
+
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
-        self.admin_client: Client = self.client  # Default, override if service key exists
-        
+        self.admin_client: Client = self.client
+
         if self.service_key:
             self.admin_client = create_client(self.supabase_url, self.service_key)
-            st.sidebar.success("✅ Using service role for admin operations")
-        else:
-            st.sidebar.info("⚠️ No SUPABASE_SERVICE_KEY - some admin functions may fail")
-        
-        # Initialize infrastructure
+
         self._setup_infrastructure()
-    
+
     def _setup_infrastructure(self):
-        """Create bucket if missing - with proper error handling."""
         try:
-            # Check if bucket exists
             self.client.storage.from_("documents").list()
-            st.sidebar.success("📂 Storage bucket ready")
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "not found" in error_msg or "bucket" in error_msg:
-                st.error("📂 CRITICAL: 'documents' bucket not found!")
-                st.info("Fix: Go to Supabase Dashboard → Storage → Create new bucket named 'documents'")
-                st.stop()
-            else:
-                st.warning(f"⚠️ Storage check: {e}")
-    
+        except Exception:
+            st.error("❌ Supabase storage bucket 'documents' missing")
+            st.stop()
+
+    # ---------------- AUTH ----------------
     def verify_user(self, username: str, password: str) -> Optional[Dict]:
-        """Verify with debug logging."""
-        try:
-            # Clean and hash
-            username_clean = username.strip().lower()
-            password_hash = hashlib.sha256(password.strip().encode()).hexdigest()
-            
-            st.sidebar.write("🔍 **Debug Login**")
-            st.sidebar.write(f"Username: `{username_clean}`")
-            st.sidebar.write(f"Password hash: `{password_hash}`")
-            
-            # Query
-            result = self.client.table("users") \
-                .select("*") \
-                .ilike("username", username_clean) \
-                .eq("password", password_hash) \
-                .execute()
-            
-            st.sidebar.write(f"Query result: {result.data}")
-            
-            if result.data:
-                st.sidebar.success("✅ Login successful")
-                return result.data[0]
-            
-            # Show what users exist for debugging
-            all_users = self.client.table("users").select("username, role").execute()
-            st.sidebar.write(f"All users: {[u['username'] for u in all_users.data]}")
-            
-            return None
-            
-        except Exception as e:
-            st.sidebar.error(f"❌ Login error: {str(e)}")
-            return None
-    
-    def add_document(self, filename: str, country: str, doc_type: str,
-                     owner_id: str, owner_role: str, file_content: bytes,
-                     chunks: List[Dict]) -> str:
-        """Upload with comprehensive error handling."""
-        try:
-            st.sidebar.write("📤 **Debug Upload**")
-            
-            # Generate IDs
-            doc_id = str(uuid.uuid4())
-            file_path = f"{owner_id}/{doc_id}_{filename}"
-            
-            st.sidebar.write(f"Doc ID: {doc_id}")
-            st.sidebar.write(f"File path: {file_path}")
-            st.sidebar.write(f"File size: {len(file_content)} bytes")
-            st.sidebar.write(f"Chunks count: {len(chunks)}")
-            
-            # Check bucket exists
-            try:
-                self.client.storage.from_("documents").list(path=owner_id)
-            except:
-                st.sidebar.info("Creating user folder in bucket...")
-            
-            # Upload file
-            self.client.storage.from_("documents").upload(
-                file_path, file_content, {"content-type": "application/octet-stream"}
-            )
-            
-            public_url = self.client.storage.from_("documents").get_public_url(file_path)
-            
-            # Prepare metadata
-            metadata = {
-                "id": doc_id,
-                "filename": filename,
-                "country": country,
-                "doc_type": doc_type,
-                "owner_id": owner_id,
-                "owner_role": owner_role,
-                "file_path": file_path,
-                "public_url": public_url,
-                "chunks": chunks,
-                "upload_date": datetime.now().isoformat()
-            }
-            
-            st.sidebar.write(f"Metadata: {metadata.keys()}")
-            
-            # Insert metadata
-            result = self.client.table("documents").insert(metadata).execute()
-            
-            if result.data:
-                st.sidebar.success("✅ Document metadata saved")
-                return doc_id
-            else:
-                st.sidebar.error("❌ Failed to save metadata")
-                return None
-                
-        except Exception as e:
-            st.sidebar.error(f"❌ Upload failed: {str(e)}")
-            raise e
-    
-    # [Keep all your other methods as they are - delete_document, get_documents_by_filters, etc.]
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        res = self.client.table("users") \
+            .select("*") \
+            .eq("username", username.lower()) \
+            .eq("password", password_hash) \
+            .execute()
+        return res.data[0] if res.data else None
+
+    # ---------------- DOCUMENT UPLOAD ----------------
+    def add_document(self, filename, country, doc_type,
+                     owner_id, owner_role, file_content, chunks):
+        doc_id = str(uuid.uuid4())
+        file_path = f"{owner_id}/{doc_id}_{filename}"
+
+        self.client.storage.from_("documents").upload(
+            file_path, file_content, {"content-type": "application/octet-stream"}
+        )
+
+        public_url = self.client.storage.from_("documents").get_public_url(file_path)
+
+        payload = {
+            "id": doc_id,
+            "filename": filename,
+            "country": country,
+            "doc_type": doc_type,
+            "owner_id": owner_id,
+            "owner_role": owner_role,
+            "file_path": file_path,
+            "public_url": public_url,
+            "chunks": chunks,
+            "created_at": datetime.utcnow().isoformat()
+        }
+
+        self.client.table("documents").insert(payload).execute()
+        return doc_id
+
+    # ---------------- DOCUMENT LISTING ----------------
+    def get_documents_by_filters(self, user_id, user_role, country, doc_type):
+        query = self.client.table("documents").select("*")
+
+        if user_role != "admin":
+            query = query.or_(f"owner_role.eq.admin,owner_id.eq.{user_id}")
+
+        if country and country != "All":
+            query = query.eq("country", country)
+
+        if doc_type and doc_type != "All":
+            query = query.eq("doc_type", doc_type)
+
+        return query.order("created_at", desc=True).execute().data or []
+
+    def search_documents(self, user_id, user_role, keyword):
+        query = self.client.table("documents").select("*").ilike("filename", f"%{keyword}%")
+
+        if user_role != "admin":
+            query = query.or_(f"owner_role.eq.admin,owner_id.eq.{user_id}")
+
+        return query.execute().data or []
+
+    # ---------------- DELETE ----------------
+    def delete_document(self, doc_id, user_id, user_role):
+        doc = self.client.table("documents").select("*").eq("id", doc_id).execute().data
+        if not doc:
+            return False
+
+        doc = doc[0]
+        if user_role != "admin" and doc["owner_id"] != user_id:
+            return False
+
+        self.client.storage.from_("documents").remove([doc["file_path"]])
+        self.client.table("documents").delete().eq("id", doc_id).execute()
+        return True
+
+    # ---------------- CHUNKS ----------------
+    def get_all_chunks(self, user_id, user_role):
+        docs = self.get_documents_by_filters(user_id, user_role, None, None)
+        all_chunks = []
+        for d in docs:
+            all_chunks.extend(d.get("chunks", []))
+        return all_chunks
