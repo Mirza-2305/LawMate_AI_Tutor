@@ -121,7 +121,7 @@ def login_user():
             else:
                 st.sidebar.error("❌ Invalid credentials")
 
-        st.sidebar.info("Default admin login: username='admin', password='########'")
+        st.sidebar.info("Default admin login: username='admin', password='admin123'")
     else:
         st.sidebar.success(f"Logged in: {st.session_state.user['username']} ({st.session_state.user['role']})")
         if st.sidebar.button("Logout"):
