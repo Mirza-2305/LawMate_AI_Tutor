@@ -79,7 +79,7 @@ class SupabaseManager:
             file_path = f"{owner_id}/{doc_id}_{filename}"
 
             # 1. Upload file to storage (using admin_client to bypass RLS)
-            storage_response = self.admin_client.storage.from_("documents").upload(
+            storage_response = self.client.storage.from_("documents").upload(
                 file_path,
                 file_content
             )
