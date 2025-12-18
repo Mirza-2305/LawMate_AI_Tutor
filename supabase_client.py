@@ -10,36 +10,27 @@ from supabase import create_client, Client
 
 class SupabaseManager:
     def __init__(self):
-        # Load secrets
+        # GET SERVICE ROLE KEY ONLY
         self.supabase_url = st.secrets.get("SUPABASE_URL")
-        self.supabase_key = st.secrets.get("SUPABASE_KEY")
         self.service_key = st.secrets.get("SUPABASE_SERVICE_KEY")
 
-        # Validate credentials
-        if not self.supabase_url:
-            raise ValueError("❌ SUPABASE_URL missing in secrets")
-        if not self.supabase_key:
-            raise ValueError("❌ SUPABASE_KEY missing in secrets")
-        if not self.service_key:
-            st.warning("⚠️ SUPABASE_SERVICE_KEY not found - using anon key (RLS may block operations)")
-
-        # Create clients
-        self.client: Client = create_client(self.supabase_url, self.supabase_key)
-        self.admin_client: Client = create_client(self.supabase_url, self.service_key)
-
-        # Verify connection and bucket
-        self._initialize_connection()
-
-    def _initialize_connection(self):
-        """Initialize and verify Supabase connection"""
-        try:
-            # Test bucket access
-            self.admin_client.storage.from_("documents").list()
-            st.sidebar.success("✅ Supabase connected")
-        except Exception as e:
-            st.error(f"❌ Storage bucket 'documents' not found or inaccessible: {e}")
-            st.info("Please create a 'documents' bucket in Supabase Storage")
+        # VALIDATE KEY FORMAT (service keys are ~200+ characters)
+        if len(self.service_key) < 100:
+            st.error("🚨 INVALID SERVICE KEY! Too short. Get from Project Settings → API")
             st.stop()
+        
+        # CREATE SINGLE CLIENT WITH SERVICE ROLE (bypasses ALL security)
+        self.client: Client = create_client(self.supabase_url, self.service_key)
+        
+        # Verify bucket
+        try:
+            self.client.storage.from_("documents").list()
+            st.sidebar.success("✅ Supabase Storage connected with Service Role")
+        except Exception as e:
+            st.error(f"❌ Storage error: {e}")
+            st.info("Create a 'documents' bucket in Storage → Buckets")
+            st.stop()
+
 
     # -------------------------------------------------
     # AUTH
@@ -98,10 +89,10 @@ class SupabaseManager:
                 return None
 
             # Get public URL
-            public_url = self.admin_client.storage.from_("documents").get_public_url(file_path)
+            public_url = self.client.storage.from_("documents").get_public_url(file_path)
 
-            # Prepare document row
-            document_row = {
+            # 3. INSERT METADATA (same service key)
+            result = self.client.table("documents").insert({
                 "id": doc_id,
                 "filename": filename,
                 "country": country,
@@ -110,22 +101,28 @@ class SupabaseManager:
                 "owner_role": owner_role,
                 "file_path": file_path,
                 "public_url": public_url,
-                "chunks": chunks,   # stored as JSONB
+                "chunks": chunks,
                 "upload_date": datetime.utcnow().isoformat(),
-            }
+            }).execute()
 
-            # Insert metadata using SERVICE ROLE (admin_client)
-            result = self.admin_client.table("documents").insert(document_row).execute()
-
-            if result.data and len(result.data) > 0:
-                return doc_id
-            else:
-                st.error(f"❌ Metadata insert failed: {result}")
-                return None
+            return doc_id if result.data else None
 
         except Exception as e:
-            st.error(f"❌ Document upload error: {str(e)}")
-            st.info("💡 If this is an RLS error, disable RLS on the 'documents' table in Supabase")
+            # SPECIFIC ERROR MESSAGES
+            error_str = str(e).lower()
+            
+            if "row-level security" in error_str:
+                st.error("🚨 RLS IS STILL ENABLED! Run: ALTER TABLE documents DISABLE ROW LEVEL SECURITY")
+                
+            elif "invalid jwt" in error_str:
+                st.error("🚨 INVALID SERVICE KEY! Check SUPABASE_SERVICE_KEY")
+                
+            elif "bucket not found" in error_str:
+                st.error("🚨 'documents' bucket missing in Storage")
+                
+            else:
+                st.error(f"❌ Upload error: {e}")
+            
             return None
 
     # -------------------------------------------------
@@ -188,7 +185,7 @@ class SupabaseManager:
 
         try:
             # 1. Get file path
-            doc = self.admin_client.table("documents")\
+            doc = self.client.table("documents")\
                 .select("file_path")\
                 .eq("id", doc_id)\
                 .execute()
@@ -196,10 +193,10 @@ class SupabaseManager:
             if doc.data:
                 # 2. Delete from storage
                 file_path = doc.data[0]["file_path"]
-                self.admin_client.storage.from_("documents").remove([file_path])
+                self.client.storage.from_("documents").remove([file_path])
                 
                 # 3. Delete metadata
-                self.admin_client.table("documents")\
+                self.client.table("documents")\
                     .delete()\
                     .eq("id", doc_id)\
                     .execute()
