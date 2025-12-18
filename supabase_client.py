@@ -25,7 +25,7 @@ class SupabaseManager:
 
         # Create clients
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
-        self.admin_client: Client = create_client(self.supabase_url, self.service_key or self.supabase_key)
+        self.admin_client: Client = create_client(self.supabase_url, self.service_key)
 
         # Verify connection and bucket
         self._initialize_connection()
