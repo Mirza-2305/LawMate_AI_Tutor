@@ -121,7 +121,7 @@ def login_user():
             else:
                 st.sidebar.error("❌ Invalid credentials")
 
-        st.sidebar.info("Default admin login: username='admin', password='admin123'")
+        st.sidebar.info("Default admin login: username='admin', password='########'")
     else:
         st.sidebar.success(f"Logged in: {st.session_state.user['username']} ({st.session_state.user['role']})")
         if st.sidebar.button("Logout"):
@@ -146,7 +146,12 @@ def main():
 
     # Initialize session state
     if 'file_manager' not in st.session_state:
-        st.session_state.file_manager = SupabaseManager()
+        try:
+            st.session_state.file_manager = SupabaseManager()
+        except Exception as e:
+            st.error(f"❌ Failed to initialize Supabase: {e}")
+            st.stop()
+            
     if 'qa_history' not in st.session_state:
         st.session_state.qa_history = []
 
@@ -187,21 +192,31 @@ def main():
                     st.sidebar.error("❌ File is empty")
                     st.stop()
 
-                text = extract_text(file_content, Path(uploaded_file.name).suffix)
+                # Extract text
+                with st.spinner("Extracting text..."):
+                    text = extract_text(file_content, Path(uploaded_file.name).suffix)
+                
                 if not text or len(text.strip()) < 50:
-                    st.sidebar.error("❌ Failed to extract text.")
+                    st.sidebar.error("❌ Failed to extract meaningful text from file")
                 else:
-                    chunks = chunk_text(text, str(uuid.uuid4()), chunk_size=800, overlap=100)
+                    # Chunk text
+                    with st.spinner("Processing document..."):
+                        chunks = chunk_text(text, str(uuid.uuid4()), 
+                                          chunk_size=800, overlap=100)
+                    
+                    # Upload to Supabase
                     owner_role = "admin" if is_admin else "user"
                     doc_id = file_manager.add_document(
                         uploaded_file.name, country, doc_type,
                         user_id, owner_role, file_content, chunks
                     )
+                    
                     if doc_id:
                         st.sidebar.success(f"✅ Uploaded! ID: {doc_id[:8]}...")
                         st.rerun()
                     else:
-                        st.sidebar.error("❌ Upload failed")
+                        st.sidebar.error("❌ Upload failed - check error details above")
+                        
             except Exception as e:
                 st.sidebar.error(f"❌ Upload error: {e}")
         else:
@@ -214,38 +229,76 @@ def main():
     filter_country = st.selectbox("Filter by Country", ["All"] + countries)
     filter_type = st.selectbox("Filter by Type", ["All"] + doc_types)
 
-    if search_keyword:
-        documents = file_manager.search_documents(user_id, user_role, search_keyword)
-    else:
-        documents = file_manager.get_documents_by_filters(user_id, user_role, filter_country, filter_type)
+    try:
+        if search_keyword:
+            documents = file_manager.search_documents(user_id, user_role, search_keyword)
+        else:
+            documents = file_manager.get_documents_by_filters(
+                user_id, user_role, filter_country, filter_type
+            )
+    except Exception as e:
+        st.error(f"❌ Error fetching documents: {e}")
+        documents = []
 
     if not documents:
-        st.info("No documents found.")
+        st.info("No documents found. Upload some documents to get started!")
     else:
-        for doc in documents:
-            with st.expander(f"{doc['filename']} ({doc['country']} - {doc['doc_type']})"):
-                preview = get_preview_text(doc.get('chunks',[{}])[0].get('text',''), 300)
-                st.text_area("Preview", preview, height=100)
-                st.caption(f"ID: {doc['id'][:12]}..., Owner: {doc['owner_role']}")
+        for idx, doc in enumerate(documents):
+            with st.expander(
+                f"{doc['filename']} ({doc['country']} - {doc['doc_type']})"
+            ):
+                # Show preview
+                preview_text = doc.get('chunks', [{}])[0].get('text', '') if doc.get('chunks') else ''
+                preview = get_preview_text(preview_text, 300)
+                st.text_area("Preview", preview, height=100, key=f"preview_{idx}")
+                
+                # Show metadata
+                st.caption(
+                    f"ID: {doc['id'][:12]}... | Owner: {doc['owner_role']} | "
+                    f"Date: {doc.get('upload_date', 'N/A')[:10]}"
+                )
 
     # === Q&A SECTION ===
     st.markdown("---")
     st.markdown("### 🙋 Ask a Question")
+    
     available_models = get_available_models()
     selected_model = st.selectbox("Select AI Model", available_models, index=0)
     question = st.text_area("Enter your question:", height=100)
 
     if st.button("Get Answer", type="primary"):
         if not question.strip():
-            st.warning("Enter a question.")
+            st.warning("Please enter a question first")
         else:
             try:
-                all_chunks = file_manager.get_all_chunks(user_id, user_role)
-                relevant_chunks = find_relevant_chunks(question, all_chunks, top_k=5)
-                result = get_answer_from_chunks(query=question, chunks=relevant_chunks, model=selected_model)
+                with st.spinner("Searching documents and generating answer..."):
+                    all_chunks = file_manager.get_all_chunks(user_id, user_role)
+                    
+                    if not all_chunks:
+                        st.warning("⚠️ No document chunks available. Upload documents first.")
+                        st.stop()
+                    
+                    relevant_chunks = find_relevant_chunks(question, all_chunks, top_k=5)
+                    
+                    if not relevant_chunks:
+                        st.info("ℹ️ No relevant document sections found. Will use general knowledge.")
+                    
+                    result = get_answer_from_chunks(
+                        query=question, chunks=relevant_chunks, model=selected_model
+                    )
 
                 st.markdown("#### 🤖 AI Answer")
                 st.markdown(result['answer'])
+                
+                # Store in history
+                st.session_state.qa_history.append({
+                    "question": question,
+                    "answer": result['answer'],
+                    "model": selected_model,
+                    "timestamp": datetime.now().isoformat()
+                })
+
             except Exception as e:
-                st.error(f"❌ Error: {e}")
+                st.error(f"❌ Error generating answer: {e}")
+                st.info("💡 Tip: Check that documents are properly uploaded and chunked")
 

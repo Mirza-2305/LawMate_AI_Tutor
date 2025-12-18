@@ -15,27 +15,30 @@ class SupabaseManager:
         self.supabase_key = st.secrets.get("SUPABASE_KEY")
         self.service_key = st.secrets.get("SUPABASE_SERVICE_KEY")
 
-        if not self.supabase_url or not self.supabase_key:
-            raise ValueError("❌ Supabase credentials missing")
+        # Validate credentials
+        if not self.supabase_url:
+            raise ValueError("❌ SUPABASE_URL missing in secrets")
+        if not self.supabase_key:
+            raise ValueError("❌ SUPABASE_KEY missing in secrets")
+        if not self.service_key:
+            st.warning("⚠️ SUPABASE_SERVICE_KEY not found - using anon key (RLS may block operations)")
 
-        # Clients
+        # Create clients
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
+        self.admin_client: Client = create_client(self.supabase_url, self.service_key or self.supabase_key)
 
-        if self.service_key:
-            self.admin_client: Client = create_client(self.supabase_url, self.service_key)
-        else:
-            self.admin_client = self.client
+        # Verify connection and bucket
+        self._initialize_connection()
 
-        self._check_bucket()
-
-    # -------------------------------------------------
-    # STORAGE
-    # -------------------------------------------------
-    def _check_bucket(self):
+    def _initialize_connection(self):
+        """Initialize and verify Supabase connection"""
         try:
-            self.client.storage.from_("documents").list()
-        except Exception:
-            st.error("❌ Storage bucket 'documents' not found")
+            # Test bucket access
+            self.admin_client.storage.from_("documents").list()
+            st.sidebar.success("✅ Supabase connected")
+        except Exception as e:
+            st.error(f"❌ Storage bucket 'documents' not found or inaccessible: {e}")
+            st.info("Please create a 'documents' bucket in Supabase Storage")
             st.stop()
 
     # -------------------------------------------------
@@ -75,19 +78,27 @@ class SupabaseManager:
         file_content: bytes,
         chunks: List[Dict],
     ) -> Optional[str]:
+        """
+        Upload document to Supabase Storage and insert metadata
+        Uses admin_client for all operations to bypass RLS
+        """
         try:
             # Generate unique document ID
             doc_id = str(uuid.uuid4())
             file_path = f"{owner_id}/{doc_id}_{filename}"
 
-            # ✅ CORRECT Supabase upload (NO upsert, NO file_options)
-            self.client.storage.from_("documents").upload(
+            # 1. Upload file to storage (using admin_client to bypass RLS)
+            storage_response = self.admin_client.storage.from_("documents").upload(
                 file_path,
                 file_content
             )
+            
+            if not storage_response:
+                st.error("❌ Storage upload failed")
+                return None
 
             # Get public URL
-            public_url = self.client.storage.from_("documents").get_public_url(file_path)
+            public_url = self.admin_client.storage.from_("documents").get_public_url(file_path)
 
             # Prepare document row
             document_row = {
@@ -106,14 +117,15 @@ class SupabaseManager:
             # Insert metadata using SERVICE ROLE (admin_client)
             result = self.admin_client.table("documents").insert(document_row).execute()
 
-            if result.data:
+            if result.data and len(result.data) > 0:
                 return doc_id
-
-            st.error("❌ Failed to insert document metadata")
-            return None
+            else:
+                st.error(f"❌ Metadata insert failed: {result}")
+                return None
 
         except Exception as e:
-            st.error(f"❌ Document upload error: {e}")
+            st.error(f"❌ Document upload error: {str(e)}")
+            st.info("💡 If this is an RLS error, disable RLS on the 'documents' table in Supabase")
             return None
 
     # -------------------------------------------------
@@ -126,7 +138,7 @@ class SupabaseManager:
         country: Optional[str] = None,
         doc_type: Optional[str] = None,
     ) -> List[Dict]:
-
+        """Fetch documents with filters and role-based access"""
         try:
             query = self.client.table("documents").select("*")
 
@@ -139,7 +151,9 @@ class SupabaseManager:
             if doc_type and doc_type != "All":
                 query = query.eq("doc_type", doc_type)
 
-            return query.order("upload_date", desc=True).execute().data
+            # Execute query
+            result = query.order("upload_date", desc=True).execute()
+            return result.data if result.data else []
 
         except Exception as e:
             st.error(f"❌ Fetch error: {e}")
@@ -149,13 +163,15 @@ class SupabaseManager:
     # SEARCH
     # -------------------------------------------------
     def search_documents(self, user_id: str, user_role: str, keyword: str) -> List[Dict]:
+        """Search documents by filename"""
         try:
             query = self.client.table("documents").select("*").ilike("filename", f"%{keyword}%")
 
             if user_role != "admin":
                 query = query.or_(f"owner_role.eq.admin,owner_id.eq.{user_id}")
 
-            return query.execute().data
+            result = query.execute()
+            return result.data if result.data else []
 
         except Exception as e:
             st.error(f"❌ Search error: {e}")
@@ -165,16 +181,34 @@ class SupabaseManager:
     # DELETE
     # -------------------------------------------------
     def delete_document(self, doc_id: str, user_id: str, user_role: str) -> bool:
+        """Delete document and its storage file (Admin only)"""
         if user_role != "admin":
+            st.error("❌ Only admins can delete documents")
             return False
 
         try:
-            doc = self.client.table("documents").select("file_path").eq("id", doc_id).execute()
-            if doc.data:
-                self.client.storage.from_("documents").remove([doc.data[0]["file_path"]])
+            # 1. Get file path
+            doc = self.admin_client.table("documents")\
+                .select("file_path")\
+                .eq("id", doc_id)\
+                .execute()
 
-            self.admin_client.table("documents").delete().eq("id", doc_id).execute()
-            return True
+            if doc.data:
+                # 2. Delete from storage
+                file_path = doc.data[0]["file_path"]
+                self.admin_client.storage.from_("documents").remove([file_path])
+                
+                # 3. Delete metadata
+                self.admin_client.table("documents")\
+                    .delete()\
+                    .eq("id", doc_id)\
+                    .execute()
+                
+                st.success("✅ Document deleted")
+                return True
+            else:
+                st.error("❌ Document not found")
+                return False
 
         except Exception as e:
             st.error(f"❌ Delete error: {e}")
@@ -184,6 +218,7 @@ class SupabaseManager:
     # CHUNKS ACCESS (FROM JSONB)
     # -------------------------------------------------
     def get_all_chunks(self, user_id: str, user_role: str) -> List[Dict]:
+        """Extract all chunks from accessible documents"""
         chunks = []
         docs = self.get_documents_by_filters(user_id, user_role)
 
