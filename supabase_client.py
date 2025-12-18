@@ -75,20 +75,21 @@ class SupabaseManager:
         file_content: bytes,
         chunks: List[Dict],
     ) -> Optional[str]:
-
         try:
+            # Generate unique document ID
             doc_id = str(uuid.uuid4())
             file_path = f"{owner_id}/{doc_id}_{filename}"
 
-            # ✅ CORRECT UPLOAD (NO upsert ERROR)
+            # ✅ CORRECT Supabase upload (NO upsert, NO file_options)
             self.client.storage.from_("documents").upload(
                 file_path,
-                file_content,
-                file_options={"upsert": True}
+                file_content
             )
 
+            # Get public URL
             public_url = self.client.storage.from_("documents").get_public_url(file_path)
 
+            # Prepare document row
             document_row = {
                 "id": doc_id,
                 "filename": filename,
@@ -98,15 +99,17 @@ class SupabaseManager:
                 "owner_role": owner_role,
                 "file_path": file_path,
                 "public_url": public_url,
-                "chunks": chunks,
+                "chunks": chunks,   # stored as JSONB
                 "upload_date": datetime.utcnow().isoformat(),
             }
 
+            # Insert metadata using SERVICE ROLE (admin_client)
             result = self.admin_client.table("documents").insert(document_row).execute()
 
             if result.data:
                 return doc_id
 
+            st.error("❌ Failed to insert document metadata")
             return None
 
         except Exception as e:
