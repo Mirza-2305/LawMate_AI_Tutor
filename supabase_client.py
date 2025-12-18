@@ -41,7 +41,7 @@ class SupabaseManager:
             password_hash = hashlib.sha256(password.strip().encode()).hexdigest()
 
             result = (
-                self.admin_client
+                self.client
                 .table("users")
                 .select("*")
                 .eq("username", username)
