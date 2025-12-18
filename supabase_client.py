@@ -62,22 +62,38 @@ class SupabaseManager:
             return None
 
     # --- DOCUMENT UPLOAD ---
-    def add_document(self, filename: str, country: str, doc_type: str,
-                     owner_id: str, owner_role: str, file_content: bytes,
-                     chunks: List[Dict]) -> Optional[str]:
-        """Upload document to Supabase storage and insert metadata."""
+    def add_document(
+        self,
+        filename: str,
+        country: str,
+        doc_type: str,
+        owner_id: str,
+        owner_role: str,
+        file_content: bytes,
+        chunks: list
+    ) -> str | None:
         try:
+            st.sidebar.write("📤 Uploading document...")
+
+            # Generate document ID
             doc_id = str(uuid.uuid4())
             file_path = f"{owner_id}/{doc_id}_{filename}"
 
-            # Upload file using admin client
-            storage_bucket = self.admin_client.storage.from_("documents")
-            storage_bucket.upload(file_path, file_content, {"content-type": "application/octet-stream"}, upsert=True)
+            # ✅ Upload file (NO upsert keyword)
+            self.client.storage.from_("documents").upload(
+                file_path,
+                file_content,
+                file_options={
+                    "content-type": "application/octet-stream",
+                    "x-upsert": "true"
+                }
+            )
 
-            public_url = storage_bucket.get_public_url(file_path)
-            
-            # Metadata
-            metadata = {
+            # Get public URL
+            public_url = self.client.storage.from_("documents").get_public_url(file_path)
+
+            # Prepare metadata (matches YOUR table schema)
+            document_row = {
                 "id": doc_id,
                 "filename": filename,
                 "country": country,
@@ -87,18 +103,23 @@ class SupabaseManager:
                 "file_path": file_path,
                 "public_url": public_url,
                 "chunks": chunks,
-                "upload_date": datetime.now().isoformat()
+                "upload_date": datetime.utcnow().isoformat()
             }
-            
-            result = self.admin_client.table("documents").insert(metadata).execute()
+
+            # Insert metadata (use service key if available)
+            client = self.admin_client if self.service_key else self.client
+            result = client.table("documents").insert(document_row).execute()
+
             if result.data:
+                st.sidebar.success("✅ Document uploaded successfully")
                 return doc_id
-            else:
-                st.error(f"❌ Failed to insert document metadata: {result}")
-                return None
+
+            st.sidebar.error("❌ Failed to save document metadata")
+            return None
 
         except Exception as e:
-            st.error(f"❌ Document upload error: {str(e)}")
+            st.sidebar.error(f"❌ Document upload error: {e}")
+            st.sidebar.exception(e)
             return None
 
     # --- GET DOCUMENTS ---
