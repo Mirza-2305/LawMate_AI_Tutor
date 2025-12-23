@@ -121,7 +121,7 @@ def login_user():
             else:
                 st.sidebar.error("❌ Invalid credentials")
 
-        st.sidebar.info("Default admin login: username='admin', password='admin123'")
+        # st.sidebar.info("Default admin login: username='admin', password='admin123'")
     else:
         st.sidebar.success(f"Logged in: {st.session_state.user['username']} ({st.session_state.user['role']})")
         if st.sidebar.button("Logout"):
@@ -297,6 +297,39 @@ def main():
                     "model": selected_model,
                     "timestamp": datetime.now().isoformat()
                 })
+                
+                # ===== DOWNLOAD BUTTONS (NEW) =====
+                st.markdown("---")
+                st.markdown("#### 💾 Download Response")
+                
+                # Prepare export data
+                export_data = {
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "model": selected_model,
+                    "question": question,
+                    "answer": result['answer'],
+                    "sources": result.get('sources', []),
+                    "has_document_context": len(relevant_chunks) > 0,
+                    "used_general_knowledge": result.get('used_general_knowledge', False)
+                }
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    pdf_data = create_pdf_export(export_data)
+                    st.download_button(
+                        label="📄 Download PDF",
+                        data=pdf_data,
+                        file_name=f"ai_answer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf"
+                    )
+                with col2:
+                    docx_data = create_docx_export(export_data)
+                    st.download_button(
+                        label="📝 Download DOCX",
+                        data=docx_data,
+                        file_name=f"ai_answer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
 
             except Exception as e:
                 st.error(f"❌ Error generating answer: {e}")
